@@ -6,7 +6,7 @@
 const GEMINI_API_KEY = () => localStorage.getItem('GEMINI_API_KEY') || '';
 const ELEVENLABS_API_KEY = () => localStorage.getItem('ELEVENLABS_API_KEY') || '';
 
-const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent';
+const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
 const ELEVENLABS_BASE = 'https://api.elevenlabs.io/v1';
 
 // ------ Response Wrapper ------
@@ -28,28 +28,78 @@ export async function callGemini(prompt, images = []) {
     parts.push({ inline_data: { mime_type: img.type, data: img.base64 } });
   }
 
+  console.log('[ContentIQ] Calling Gemini API with', images.length, 'images...');
+
   const res = await fetch(`${GEMINI_URL}?key=${key}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       contents: [{ parts }],
-      generationConfig: { temperature: 0.7, topP: 0.95, maxOutputTokens: 8192 }
+      generationConfig: {
+        temperature: 0.7,
+        topP: 0.95,
+        maxOutputTokens: 8192,
+        responseMimeType: 'application/json'
+      }
     })
   });
 
-  if (!res.ok) throw new Error(`Gemini API error: ${res.status}`);
+  if (!res.ok) {
+    const errorBody = await res.text().catch(() => '');
+    console.error('[ContentIQ] Gemini API error:', res.status, errorBody);
+    throw new Error(`Gemini API error ${res.status}: ${errorBody.substring(0, 200)}`);
+  }
+
   const data = await res.json();
-  return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  console.log('[ContentIQ] Gemini response received:', JSON.stringify(data).substring(0, 300));
+
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  if (!text) {
+    const blockReason = data.candidates?.[0]?.finishReason;
+    const safetyRatings = data.candidates?.[0]?.safetyRatings;
+    console.warn('[ContentIQ] Empty response. Finish reason:', blockReason, 'Safety:', JSON.stringify(safetyRatings));
+    if (blockReason && blockReason !== 'STOP') {
+      throw new Error(`Gemini blocked response: ${blockReason}`);
+    }
+  }
+  return text;
 }
 
 export function parseGeminiJSON(text) {
+  if (!text) return null;
+
+  // Try direct parse first (when using responseMimeType: application/json)
   try {
-    const match = text.match(/```json\s*([\s\S]*?)```/) || text.match(/\{[\s\S]*\}/);
-    if (match) {
-      const jsonStr = match[1] || match[0];
-      return JSON.parse(jsonStr);
+    return JSON.parse(text);
+  } catch (e) { /* not direct JSON, try extraction */ }
+
+  // Try extracting from markdown code block
+  try {
+    const codeBlockMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+    if (codeBlockMatch) {
+      return JSON.parse(codeBlockMatch[1].trim());
     }
-  } catch (e) { /* fall through */ }
+  } catch (e) { /* continue */ }
+
+  // Try finding first { ... } block
+  try {
+    const braceStart = text.indexOf('{');
+    const braceEnd = text.lastIndexOf('}');
+    if (braceStart !== -1 && braceEnd > braceStart) {
+      return JSON.parse(text.substring(braceStart, braceEnd + 1));
+    }
+  } catch (e) { /* continue */ }
+
+  // Try finding first [ ... ] block (array response)
+  try {
+    const bracketStart = text.indexOf('[');
+    const bracketEnd = text.lastIndexOf(']');
+    if (bracketStart !== -1 && bracketEnd > bracketStart) {
+      return JSON.parse(text.substring(bracketStart, bracketEnd + 1));
+    }
+  } catch (e) { /* continue */ }
+
+  console.error('[ContentIQ] Failed to parse Gemini JSON. Raw text:', text.substring(0, 500));
   return null;
 }
 
@@ -111,38 +161,76 @@ export function fileToBase64(file) {
 }
 
 export function extractFramesFromVideo(videoFile, count = 6) {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const video = document.createElement('video');
     video.preload = 'auto';
     video.muted = true;
+    video.playsInline = true;
+
+    // Timeout after 30 seconds
+    const timeout = setTimeout(() => {
+      console.error('[ContentIQ] Frame extraction timed out');
+      URL.revokeObjectURL(url);
+      reject(new Error('Video frame extraction timed out. Try a smaller video.'));
+    }, 30000);
+
     const url = URL.createObjectURL(videoFile);
     video.src = url;
+
+    video.onerror = (e) => {
+      clearTimeout(timeout);
+      URL.revokeObjectURL(url);
+      console.error('[ContentIQ] Video load error:', e);
+      reject(new Error('Failed to load video. Ensure the file is a valid MP4/MOV.'));
+    };
+
     video.onloadedmetadata = () => {
       const duration = video.duration;
+      if (!duration || !isFinite(duration)) {
+        clearTimeout(timeout);
+        URL.revokeObjectURL(url);
+        reject(new Error('Could not determine video duration.'));
+        return;
+      }
+
+      console.log('[ContentIQ] Video loaded. Duration:', duration, 'Resolution:', video.videoWidth, 'x', video.videoHeight);
+
       const interval = duration / (count + 1);
       const frames = [];
       let i = 1;
+
       const capture = () => {
         if (i > count) {
+          clearTimeout(timeout);
           URL.revokeObjectURL(url);
+          console.log('[ContentIQ] Extracted', frames.length, 'frames');
           resolve(frames);
           return;
         }
         video.currentTime = interval * i;
       };
+
       video.onseeked = () => {
-        const canvas = document.createElement('canvas');
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        canvas.getContext('2d').drawImage(video, 0, 0);
-        frames.push({
-          time: video.currentTime,
-          dataUrl: canvas.toDataURL('image/jpeg', 0.8),
-          base64: canvas.toDataURL('image/jpeg', 0.8).split(',')[1]
-        });
+        try {
+          const canvas = document.createElement('canvas');
+          // Downscale to max 512px wide to reduce base64 payload size
+          const scale = Math.min(1, 512 / video.videoWidth);
+          canvas.width = Math.round(video.videoWidth * scale);
+          canvas.height = Math.round(video.videoHeight * scale);
+          canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+          frames.push({
+            time: video.currentTime,
+            dataUrl: dataUrl,
+            base64: dataUrl.split(',')[1]
+          });
+        } catch (err) {
+          console.warn('[ContentIQ] Failed to capture frame at', video.currentTime, err);
+        }
         i++;
         capture();
       };
+
       capture();
     };
   });

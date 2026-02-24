@@ -67,49 +67,112 @@ async function processVideo(file) {
             return;
         }
 
+        // Step 1: Extract frames
         document.getElementById('vi-loading-status').textContent = 'Extracting frames from video...';
-        const frames = await extractFramesFromVideo(file, 6);
+        let frames;
+        try {
+            frames = await extractFramesFromVideo(file, 4);
+        } catch (frameErr) {
+            console.error('[ContentIQ] Frame extraction failed:', frameErr);
+            document.getElementById('vi-loading-status').textContent = 'Frame extraction failed — loading demo...';
+            window.showToast('Frame extraction failed: ' + frameErr.message, 'error');
+            await new Promise(r => setTimeout(r, 1500));
+            showResults(mockVideoIntelligence);
+            return;
+        }
 
-        document.getElementById('vi-loading-status').textContent = 'Sending frames to Gemini for analysis...';
+        if (!frames || frames.length === 0) {
+            window.showToast('No frames extracted from video — loading demo data', 'warning');
+            showResults(mockVideoIntelligence);
+            return;
+        }
+
+        // Step 2: Send to Gemini
+        document.getElementById('vi-loading-status').textContent = `Sending ${frames.length} frames to Gemini AI...`;
         const images = frames.map(f => ({ type: 'image/jpeg', base64: f.base64 }));
 
-        const prompt = `You are ContentIQ Video Intelligence Engine. Analyze these video frames and return a JSON object with this exact structure:
+        const prompt = `You are ContentIQ Video Intelligence Engine. Analyze these ${frames.length} video frames extracted at equal intervals and return a JSON object with this exact structure:
 {
-  "duration": "estimated duration",
+  "duration": "estimated total duration based on frame count and intervals",
   "resolution": "estimated resolution",
   "fps": 30,
   "scenes": [
-    { "id": number, "timestamp": "start–end", "engagement": 0-100, "recommendation": "Keep|Trim|Cut|Highlight", "reason": "explanation", "composition": "frame composition feedback" }
+    { "id": 1, "timestamp": "0:00-0:30", "engagement": 85, "recommendation": "Keep", "reason": "explanation of why", "composition": "frame composition feedback" }
   ],
   "thumbnails": [
-    { "frame": "timestamp", "ctrScore": 0-100, "reason": "why this frame would make a good thumbnail" }
+    { "frame": "0:05", "ctrScore": 88, "reason": "why this frame would make a good thumbnail" }
   ]
 }
-Analyze each frame for engagement potential, composition quality, and thumbnail viability. Return ONLY valid JSON.`;
 
-        const response = await callGemini(prompt, images);
+Rules:
+- Each frame represents a different scene/segment
+- "engagement" is 0-100 score
+- "recommendation" must be exactly one of: "Keep", "Trim", "Cut", or "Highlight"
+- Provide 2-3 thumbnail suggestions from the best frames
+- Return ONLY the JSON object, no other text`;
+
+        let response;
+        try {
+            response = await callGemini(prompt, images);
+        } catch (apiErr) {
+            console.error('[ContentIQ] Gemini API call failed:', apiErr);
+            document.getElementById('vi-loading-status').textContent = 'API error — loading demo data...';
+            window.showToast('Gemini API error: ' + apiErr.message, 'error');
+            await new Promise(r => setTimeout(r, 1500));
+            showResults(mockVideoIntelligence);
+            return;
+        }
+
+        // Step 3: Parse response
+        document.getElementById('vi-loading-status').textContent = 'Processing AI response...';
         const parsed = parseGeminiJSON(response);
 
         if (parsed) {
+            // Ensure scenes have required fields
+            const scenes = (parsed.scenes || []).map((s, idx) => ({
+                id: s.id || idx + 1,
+                timestamp: s.timestamp || `Scene ${idx + 1}`,
+                engagement: typeof s.engagement === 'number' ? s.engagement : 50,
+                recommendation: ['Keep', 'Trim', 'Cut', 'Highlight'].includes(s.recommendation) ? s.recommendation : 'Keep',
+                reason: s.reason || 'No analysis available',
+                composition: s.composition || 'N/A'
+            }));
+
+            const thumbnails = (parsed.thumbnails || []).map(t => ({
+                frame: t.frame || '0:00',
+                ctrScore: typeof t.ctrScore === 'number' ? t.ctrScore : 50,
+                reason: t.reason || 'Potential thumbnail candidate'
+            }));
+
             const result = {
                 module: "video_intelligence",
                 status: "success",
                 confidence: 0.94,
-                results: parsed,
-                recommendations: [
+                results: {
+                    duration: parsed.duration || 'N/A',
+                    resolution: parsed.resolution || 'N/A',
+                    fps: parsed.fps || 30,
+                    scenes,
+                    thumbnails
+                },
+                recommendations: parsed.recommendations || [
                     "Review highlighted scenes for potential clip extraction",
                     "Use highest CTR thumbnail for primary video thumbnail",
                     "Consider trimming low-engagement scenes for better retention"
                 ]
             };
             showResults(result);
+            window.showToast('Video analysis complete!', 'success');
         } else {
+            console.error('[ContentIQ] Failed to parse response:', response);
             showResults(mockVideoIntelligence);
-            window.showToast('Used demo data — could not parse AI response', 'warning');
+            window.showToast('Could not parse AI response — showing demo data', 'warning');
         }
     } catch (err) {
+        console.error('[ContentIQ] processVideo error:', err);
+        document.getElementById('vi-loading-status').textContent = 'Error — loading demo data...';
         showResults(mockVideoIntelligence);
-        window.showToast('Loaded demo data: ' + err.message, 'warning');
+        window.showToast('Error: ' + err.message + ' — showing demo data', 'error');
     }
 }
 
