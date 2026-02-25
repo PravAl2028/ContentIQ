@@ -1,39 +1,22 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ContentIQ — AI-Powered Content Intelligence</title>
-  <meta name="description" content="ContentIQ is an AI-powered content intelligence platform for video creators. Analyze, optimize, and distribute your content with Gemini AI and ElevenLabs.">
+  <meta name="description"
+    content="ContentIQ is an AI-powered content intelligence platform for video creators. Analyze, optimize, and distribute your content with Gemini AI and ElevenLabs.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap"
+    rel="stylesheet">
   <link rel="icon" type="image/svg+xml" href="/vite.svg" />
 </head>
+
 <body>
-  <div id="app">
-    <aside id="sidebar" class="sidebar">
-      <div class="sidebar-brand">
-        <div class="brand-icon">
-          <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-            <path d="M14 2L26 8V20L14 26L2 20V8L14 2Z" stroke="url(#brandGrad)" stroke-width="2" fill="none"/>
-            <circle cx="14" cy="14" r="5" fill="url(#brandGrad)"/>
-            <defs><linearGradient id="brandGrad" x1="2" y1="2" x2="26" y2="26"><stop stop-color="#A855F7"/><stop offset="1" stop-color="#6B21A8"/></linearGradient></defs>
-          </svg>
-        </div>
-        <span class="brand-name">ContentIQ</span>
-      </div>
-      <nav id="sidebar-nav" class="sidebar-nav"></nav>
-      <div class="sidebar-footer">
-        <div class="sidebar-footer-item glass-subtle">
-          <div class="api-status-dot" id="apiStatusDot"></div>
-          <span class="api-status-text" id="apiStatusText">API Keys Required</span>
-        </div>
-      </div>
-    </aside>
-    <main id="main-content" class="main-content"></main>
-  </div>
-  <div id="toast-container" class="toast-container"></div>
-  <script type="module" src="/src/main.js"></script>
+  <div id="root"></div>
+  <script type="module" src="/src/main.jsx"></script>
 </body>
+
 </html>

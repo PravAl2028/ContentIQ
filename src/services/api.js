@@ -3,7 +3,7 @@
 // Gemini 1.5 Pro + ElevenLabs integration with mock fallbacks
 // ============================================================
 
-const GEMINI_API_KEY = () => localStorage.getItem('GEMINI_API_KEY') || '';
+const GEMINI_API_KEY = () => localStorage.getItem('GEMINI_API_KEY') || 'AIzaSyCpoEi2glp3ERBkZszCF3VX8rOxW-gGRl4';
 const ELEVENLABS_API_KEY = () => localStorage.getItem('ELEVENLABS_API_KEY') || '';
 
 const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
@@ -19,6 +19,50 @@ function errorResponse(module, message) {
 }
 
 // ------ Gemini API ------
+export async function callGeminiWithVideoURL(prompt, videoUrl) {
+  const key = GEMINI_API_KEY();
+  if (!key) return null;
+
+  const parts = [
+    { file_data: { file_uri: videoUrl, mime_type: 'video/mp4' } },
+    { text: prompt }
+  ];
+
+  console.log('[ContentIQ] Calling Gemini API with video URL:', videoUrl);
+
+  const res = await fetch(`${GEMINI_URL}?key=${key}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts }],
+      generationConfig: {
+        temperature: 0.7,
+        topP: 0.95,
+        maxOutputTokens: 8192,
+        responseMimeType: 'application/json'
+      }
+    })
+  });
+
+  if (!res.ok) {
+    const errorBody = await res.text().catch(() => '');
+    console.error('[ContentIQ] Gemini API error:', res.status, errorBody);
+    throw new Error(`Gemini API error ${res.status}: ${errorBody.substring(0, 200)}`);
+  }
+
+  const data = await res.json();
+  console.log('[ContentIQ] Gemini video response received:', JSON.stringify(data).substring(0, 300));
+
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  if (!text) {
+    const blockReason = data.candidates?.[0]?.finishReason;
+    if (blockReason && blockReason !== 'STOP') {
+      throw new Error(`Gemini blocked response: ${blockReason}`);
+    }
+  }
+  return text;
+}
+
 export async function callGemini(prompt, images = []) {
   const key = GEMINI_API_KEY();
   if (!key) return null;
