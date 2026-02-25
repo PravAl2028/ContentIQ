@@ -3,10 +3,10 @@
 // Gemini 1.5 Pro + ElevenLabs integration with mock fallbacks
 // ============================================================
 
-const GEMINI_API_KEY = () => localStorage.getItem('GEMINI_API_KEY') || 'AIzaSyCpoEi2glp3ERBkZszCF3VX8rOxW-gGRl4';
+const GEMINI_API_KEY = () => '';
 const ELEVENLABS_API_KEY = () => localStorage.getItem('ELEVENLABS_API_KEY') || '';
 
-const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
+const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent';
 const ELEVENLABS_BASE = 'https://api.elevenlabs.io/v1';
 
 // ------ Response Wrapper ------
