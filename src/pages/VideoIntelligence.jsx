@@ -34,9 +34,11 @@ export default function VideoIntelligence() {
             }
 
             setLoadingStatus('Extracting frames from video...');
-            let frames;
+            let frames, exactDuration;
             try {
-                frames = await extractFramesFromVideo(file, 4);
+                const extraction = await extractFramesFromVideo(file, 4);
+                frames = extraction.frames;
+                exactDuration = extraction.duration;
             } catch (frameErr) {
                 setLoadingStatus('Frame extraction failed — loading demo...');
                 showToast('Frame extraction failed: ' + frameErr.message, 'error');
@@ -54,24 +56,43 @@ export default function VideoIntelligence() {
             setLoadingStatus(`Sending ${frames.length} frames to Gemini AI...`);
             const images = frames.map(f => ({ type: 'image/jpeg', base64: f.base64 }));
 
-            const prompt = `You are ContentIQ Video Intelligence Engine. Analyze these ${frames.length} video frames extracted at equal intervals and return a JSON object with this exact structure:
+            const frameTimestamps = frames.map(f => f.time.toFixed(2) + 's').join(', ');
+            const formattedDuration = `${Math.floor(exactDuration / 60)}:${Math.floor(exactDuration % 60).toString().padStart(2, '0')}`;
+
+            const prompt = `You are ContentIQ Video Intelligence Engine. Act as a full video-intelligence pipeline.
+Analyze these ${frames.length} video frames extracted at exact timestamps: ${frameTimestamps}.
+Follow this exact sequence internally:
+1. Treat each provided frame as a distinct scene cut (PySceneDetect equivalent)
+2. Analyse each frame for privacy risks, specifically detecting faces (OpenCV equivalent)
+3. Compute an engagement score (0-100) based on composition and faces present
+4. Generate improvement suggestions
+
+Return a JSON object with this exact structure:
 {
-  "duration": "estimated total duration based on frame count and intervals",
+  "duration": "${formattedDuration}",
   "resolution": "estimated resolution",
   "fps": 30,
   "scenes": [
-    { "id": 1, "timestamp": "0:00-0:30", "engagement": 85, "recommendation": "Keep", "reason": "explanation of why", "composition": "frame composition feedback" }
+    { 
+      "id": 1, 
+      "timestamp": "exact timestamp from the list", 
+      "engagement": 85, 
+      "recommendation": "Keep", 
+      "reason": "explanation of why", 
+      "composition": "frame composition feedback",
+      "privacy": { "has_face": true, "face_count": 1 }
+    }
   ],
   "thumbnails": [
-    { "frame": "0:05", "ctrScore": 88, "reason": "why this frame would make a good thumbnail" }
+    { "frame": "exact timestamp from the list", "ctrScore": 88, "reason": "why this frame would make a good thumbnail" }
   ]
 }
 
 Rules:
-- Each frame represents a different scene/segment
-- "engagement" is 0-100 score
+- MUST use EXACTLY "${formattedDuration}" as the "duration" value. Do not estimate or change it.
+- You MUST output exactly 1 scene for EVERY frame provided.
+- The "timestamp" for each scene MUST strictly be one of these exact values: ${frameTimestamps}
 - "recommendation" must be exactly one of: "Keep", "Trim", "Cut", or "Highlight"
-- Provide 2-3 thumbnail suggestions from the best frames
 - Return ONLY the JSON object, no other text`;
 
             let response;
@@ -91,11 +112,12 @@ Rules:
             if (parsed) {
                 const scenes = (parsed.scenes || []).map((s, idx) => ({
                     id: s.id || idx + 1,
-                    timestamp: s.timestamp || `Scene ${idx + 1}`,
+                    timestamp: s.timestamp || `Scene ${idx + 1} `,
                     engagement: typeof s.engagement === 'number' ? s.engagement : 50,
                     recommendation: ['Keep', 'Trim', 'Cut', 'Highlight'].includes(s.recommendation) ? s.recommendation : 'Keep',
                     reason: s.reason || 'No analysis available',
-                    composition: s.composition || 'N/A'
+                    composition: s.composition || 'N/A',
+                    privacy: s.privacy || { has_face: false, face_count: 0 }
                 }));
 
                 const thumbnails = (parsed.thumbnails || []).map(t => ({
@@ -133,25 +155,40 @@ Rules:
         setPhase('loading');
         setLoadingStatus('Sending video URL to Gemini AI...');
 
-        const prompt = `You are ContentIQ Video Intelligence Engine. Analyze this video and return a JSON object with this exact structure:
-{
-  "duration": "total duration of the video",
-  "resolution": "video resolution",
-  "fps": 30,
-  "scenes": [
-    { "id": 1, "timestamp": "0:00-0:30", "engagement": 85, "recommendation": "Keep", "reason": "explanation of why", "composition": "frame composition feedback" }
-  ],
-  "thumbnails": [
-    { "frame": "0:05", "ctrScore": 88, "reason": "why this frame would make a good thumbnail" }
-  ]
-}
+        const prompt = `You are ContentIQ Video Intelligence Engine.Act as a full video - intelligence pipeline.
+Follow this exact sequence of logic internally:
+            1. Extract and transcribe the audio(Whisper equivalent)
+            2. Detect strict scene cuts based on visual changes(PySceneDetect equivalent)
+            3. Analyse keyframes in each scene for privacy risks, specifically counting faces(OpenCV equivalent)
+            4. Compute an engagement score(0 - 100) per scene based on audio narrative, motion, and face presence
+            5. Generate improvement suggestions
 
-Rules:
-- Break the video into logical scenes/segments (at least 4-8 scenes)
-- "engagement" is 0-100 score based on visual interest, pacing, and content quality
-- "recommendation" must be exactly one of: "Keep", "Trim", "Cut", or "Highlight"
-- Provide 2-3 thumbnail suggestions from the best moments
-- Return ONLY the JSON object, no other text`;
+Return a JSON object with this exact structure:
+            {
+                "duration": "total duration of the video",
+                    "resolution": "video resolution",
+                        "fps": 30,
+                            "scenes": [
+                                {
+                                    "id": 1,
+                                    "timestamp": "0:00-0:15",
+                                    "engagement": 85,
+                                    "recommendation": "Keep",
+                                    "reason": "explanation of why",
+                                    "composition": "frame composition feedback",
+                                    "privacy": { "has_face": true, "face_count": 1 }
+                                }
+                            ],
+                                "thumbnails": [
+                                    { "frame": "0:05", "ctrScore": 88, "reason": "why this frame would make a good thumbnail" }
+                                ]
+            }
+
+            Rules:
+            - Break the video into deterministic, logical scenes / segments based on real cuts
+                - "engagement" is 0 - 100 score
+                    - "recommendation" must be exactly one of: "Keep", "Trim", "Cut", or "Highlight"
+                        - Return ONLY the JSON object, no other text`;
 
         try {
             const response = await callGeminiWithVideoURL(prompt, videoUrl.trim());
@@ -162,7 +199,7 @@ Rules:
             if (parsed) {
                 const scenes = (parsed.scenes || []).map((s, idx) => ({
                     id: s.id || idx + 1,
-                    timestamp: s.timestamp || `Scene ${idx + 1}`,
+                    timestamp: s.timestamp || `Scene ${idx + 1} `,
                     engagement: typeof s.engagement === 'number' ? s.engagement : 50,
                     recommendation: ['Keep', 'Trim', 'Cut', 'Highlight'].includes(s.recommendation) ? s.recommendation : 'Keep',
                     reason: s.reason || 'No analysis available',
@@ -214,7 +251,7 @@ Rules:
             {phase === 'upload' && (
                 <div className="glass-card-static mb-lg">
                     <div
-                        className={`upload-zone${dragOver ? ' drag-over' : ''}`}
+                        className={`upload - zone${dragOver ? ' drag-over' : ''} `}
                         onClick={() => fileInputRef.current?.click()}
                         onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
                         onDragLeave={() => setDragOver(false)}
@@ -291,7 +328,7 @@ function ResultsView({ data, onReset }) {
                     <div className="confidence-bar">
                         <span className="confidence-label">Confidence</span>
                         <div className="progress-bar" style={{ width: 120 }}>
-                            <div className="progress-fill" style={{ width: `${data.confidence * 100}%` }}></div>
+                            <div className="progress-fill" style={{ width: `${data.confidence * 100}% ` }}></div>
                         </div>
                         <span className="confidence-value">{Math.round(data.confidence * 100)}%</span>
                     </div>
@@ -322,7 +359,7 @@ function ResultsView({ data, onReset }) {
                             <div style={{ minWidth: 100 }}>
                                 <div className="scene-timestamp">{s.timestamp}</div>
                                 <div style={{ marginTop: 8 }}>
-                                    <span className={`scene-rec rec-${s.recommendation.toLowerCase()}`}>{s.recommendation}</span>
+                                    <span className={`scene - rec rec - ${s.recommendation.toLowerCase()} `}>{s.recommendation}</span>
                                 </div>
                             </div>
                             <div className="scene-details">
@@ -331,13 +368,21 @@ function ResultsView({ data, onReset }) {
                                     <div className="flex items-center gap-sm">
                                         <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Engagement</span>
                                         <div className="progress-bar" style={{ width: 80 }}>
-                                            <div className="progress-fill" style={{ width: `${s.engagement}%`, background: getEngagementColor(s.engagement) }}></div>
+                                            <div className="progress-fill" style={{ width: `${s.engagement}% `, background: getEngagementColor(s.engagement) }}></div>
                                         </div>
                                         <span style={{ fontSize: '0.82rem', fontWeight: 800, color: getEngagementColor(s.engagement) }}>{s.engagement}%</span>
                                     </div>
                                 </div>
                                 <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: 6 }}>{s.reason}</p>
-                                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}><strong>Composition:</strong> {s.composition}</p>
+                                <div className="flex items-center gap-md" style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                    <span><strong>Composition:</strong> {s.composition}</span>
+                                    <span>|</span>
+                                    <span>
+                                        <strong>Privacy:</strong> {s.privacy.has_face
+                                            ? <span style={{ color: 'var(--warning)' }}>Faces Detected ({s.privacy.face_count})</span>
+                                            : <span style={{ color: 'var(--success)' }}>No Faces</span>}
+                                    </span>
+                                </div>
                             </div>
                         </div>
                     ))}

@@ -1,12 +1,14 @@
 // ============================================================
 // ContentIQ — API Service Layer
-// Gemini 1.5 Pro + ElevenLabs integration with mock fallbacks
+// Google GenAI SDK + ElevenLabs integration with mock fallbacks
 // ============================================================
 
-const GEMINI_API_KEY = () => '';
+import { GoogleGenAI } from '@google/genai';
+
+const GEMINI_API_KEY = () => localStorage.getItem('GEMINI_API_KEY') || '';
 const ELEVENLABS_API_KEY = () => localStorage.getItem('ELEVENLABS_API_KEY') || '';
 
-const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent';
+const GEMINI_MODEL = 'gemini-2.5-flash-lite';
 const ELEVENLABS_BASE = 'https://api.elevenlabs.io/v1';
 
 // ------ Response Wrapper ------
@@ -18,94 +20,70 @@ function errorResponse(module, message) {
   return { module, status: 'error', results: null, confidence: 0, recommendations: [], error: message };
 }
 
-// ------ Gemini API ------
-export async function callGeminiWithVideoURL(prompt, videoUrl) {
+// ------ Google GenAI Client ------
+function getClient() {
   const key = GEMINI_API_KEY();
   if (!key) return null;
+  return new GoogleGenAI({ apiKey: key });
+}
 
-  const parts = [
-    { file_data: { file_uri: videoUrl, mime_type: 'video/mp4' } },
-    { text: prompt }
-  ];
+// ------ Gemini API via GenAI SDK ------
+export async function callGemini(prompt, images = []) {
+  const client = getClient();
+  if (!client) return null;
 
-  console.log('[ContentIQ] Calling Gemini API with video URL:', videoUrl);
+  const contents = [];
 
-  const res = await fetch(`${GEMINI_URL}?key=${key}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ parts }],
-      generationConfig: {
-        temperature: 0.7,
-        topP: 0.95,
-        maxOutputTokens: 8192,
-        responseMimeType: 'application/json'
-      }
-    })
+  // Add images as inline data
+  for (const img of images) {
+    contents.push({
+      inlineData: { mimeType: img.type, data: img.base64 }
+    });
+  }
+
+  // Add the text prompt
+  contents.push(prompt);
+
+  console.log('[ContentIQ] Calling Gemini with', images.length, 'images...');
+
+  const response = await client.models.generateContent({
+    model: GEMINI_MODEL,
+    contents: contents,
+    config: {
+      temperature: 0.7,
+      topP: 0.95,
+      maxOutputTokens: 8192,
+      responseMimeType: 'application/json'
+    }
   });
 
-  if (!res.ok) {
-    const errorBody = await res.text().catch(() => '');
-    console.error('[ContentIQ] Gemini API error:', res.status, errorBody);
-    throw new Error(`Gemini API error ${res.status}: ${errorBody.substring(0, 200)}`);
-  }
-
-  const data = await res.json();
-  console.log('[ContentIQ] Gemini video response received:', JSON.stringify(data).substring(0, 300));
-
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-  if (!text) {
-    const blockReason = data.candidates?.[0]?.finishReason;
-    if (blockReason && blockReason !== 'STOP') {
-      throw new Error(`Gemini blocked response: ${blockReason}`);
-    }
-  }
+  const text = response.text || '';
+  console.log('[ContentIQ] Gemini response received:', text.substring(0, 300));
   return text;
 }
 
-export async function callGemini(prompt, images = []) {
-  const key = GEMINI_API_KEY();
-  if (!key) return null;
+export async function callGeminiWithVideoURL(prompt, videoUrl) {
+  const client = getClient();
+  if (!client) return null;
 
-  const parts = [{ text: prompt }];
-  for (const img of images) {
-    parts.push({ inline_data: { mime_type: img.type, data: img.base64 } });
-  }
+  console.log('[ContentIQ] Calling Gemini with video URL:', videoUrl);
 
-  console.log('[ContentIQ] Calling Gemini API with', images.length, 'images...');
-
-  const res = await fetch(`${GEMINI_URL}?key=${key}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ parts }],
-      generationConfig: {
-        temperature: 0.7,
-        topP: 0.95,
-        maxOutputTokens: 8192,
-        responseMimeType: 'application/json'
-      }
-    })
+  const response = await client.models.generateContent({
+    model: GEMINI_MODEL,
+    contents: [
+      { fileData: { fileUri: videoUrl, mimeType: 'video/mp4' } },
+      prompt
+    ],
+    config: {
+      temperature: 0.7,
+      topP: 0.95,
+      maxOutputTokens: 8192,
+      responseMimeType: 'application/json'
+    }
   });
 
-  if (!res.ok) {
-    const errorBody = await res.text().catch(() => '');
-    console.error('[ContentIQ] Gemini API error:', res.status, errorBody);
-    throw new Error(`Gemini API error ${res.status}: ${errorBody.substring(0, 200)}`);
-  }
-
-  const data = await res.json();
-  console.log('[ContentIQ] Gemini response received:', JSON.stringify(data).substring(0, 300));
-
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-  if (!text) {
-    const blockReason = data.candidates?.[0]?.finishReason;
-    const safetyRatings = data.candidates?.[0]?.safetyRatings;
-    console.warn('[ContentIQ] Empty response. Finish reason:', blockReason, 'Safety:', JSON.stringify(safetyRatings));
-    if (blockReason && blockReason !== 'STOP') {
-      throw new Error(`Gemini blocked response: ${blockReason}`);
-    }
-  }
+  const text = response.text || '';
+  console.log('[ContentIQ] Gemini video response received:', text.substring(0, 300));
   return text;
 }
 
@@ -248,7 +226,7 @@ export function extractFramesFromVideo(videoFile, count = 6) {
           clearTimeout(timeout);
           URL.revokeObjectURL(url);
           console.log('[ContentIQ] Extracted', frames.length, 'frames');
-          resolve(frames);
+          resolve({ frames, duration });
           return;
         }
         video.currentTime = interval * i;
