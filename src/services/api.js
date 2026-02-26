@@ -182,19 +182,39 @@ export function fileToBase64(file) {
   });
 }
 
-export function extractFramesFromVideo(videoFile, count = 6) {
+// Get accurate duration directly from file metadata
+export function getLocalVideoDuration(file) {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement('video');
+    video.preload = 'metadata';
+
+    video.onloadedmetadata = () => {
+      resolve(video.duration);
+      URL.revokeObjectURL(video.src);
+    };
+
+    video.onerror = () => {
+      reject(new Error('Could not read video metadata'));
+      URL.revokeObjectURL(video.src);
+    };
+
+    video.src = URL.createObjectURL(file);
+  });
+}
+
+export function extractFramesFromVideo(videoFile, count = 50) {
   return new Promise((resolve, reject) => {
     const video = document.createElement('video');
     video.preload = 'auto';
     video.muted = true;
     video.playsInline = true;
 
-    // Timeout after 30 seconds
+    // Timeout after 60 seconds (giving more time for 50 frames)
     const timeout = setTimeout(() => {
       console.error('[ContentIQ] Frame extraction timed out');
       URL.revokeObjectURL(url);
       reject(new Error('Video frame extraction timed out. Try a smaller video.'));
-    }, 30000);
+    }, 60000);
 
     const url = URL.createObjectURL(videoFile);
     video.src = url;
@@ -221,11 +241,32 @@ export function extractFramesFromVideo(videoFile, count = 6) {
       const frames = [];
       let i = 1;
 
+      const canvas = document.createElement('canvas');
+      const scale = Math.min(1, 512 / video.videoWidth);
+      canvas.width = Math.round(video.videoWidth * scale);
+      canvas.height = Math.round(video.videoHeight * scale);
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+      let lastImageData = null;
+
+      // Helper to compute difference between two ImageDatas (0.0 to 1.0)
+      const getImageDifference = (img1, img2) => {
+        if (!img1 || !img2) return 1.0;
+        let diff = 0;
+        const len = img1.data.length;
+        for (let j = 0; j < len; j += 4) {
+          diff += Math.abs(img1.data[j] - img2.data[j]) +
+            Math.abs(img1.data[j + 1] - img2.data[j + 1]) +
+            Math.abs(img1.data[j + 2] - img2.data[j + 2]);
+        }
+        return diff / (len * 0.75 * 255); // Normalize to 0-1
+      };
+
       const capture = () => {
         if (i > count) {
           clearTimeout(timeout);
           URL.revokeObjectURL(url);
-          console.log('[ContentIQ] Extracted', frames.length, 'frames');
+          console.log('[ContentIQ] Extracted', frames.length, 'distinct frames out of', count, 'sampled');
           resolve({ frames, duration });
           return;
         }
@@ -234,18 +275,21 @@ export function extractFramesFromVideo(videoFile, count = 6) {
 
       video.onseeked = () => {
         try {
-          const canvas = document.createElement('canvas');
-          // Downscale to max 512px wide to reduce base64 payload size
-          const scale = Math.min(1, 512 / video.videoWidth);
-          canvas.width = Math.round(video.videoWidth * scale);
-          canvas.height = Math.round(video.videoHeight * scale);
-          canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
-          const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
-          frames.push({
-            time: video.currentTime,
-            dataUrl: dataUrl,
-            base64: dataUrl.split(',')[1]
-          });
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const currentImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+          // Compare with previous frame; threshold of 0.05 means 5% average pixel difference
+          const diff = lastImageData ? getImageDifference(lastImageData, currentImageData) : 1.0;
+
+          if (diff > 0.05) {
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+            frames.push({
+              time: video.currentTime,
+              dataUrl: dataUrl,
+              base64: dataUrl.split(',')[1]
+            });
+            lastImageData = currentImageData;
+          }
         } catch (err) {
           console.warn('[ContentIQ] Failed to capture frame at', video.currentTime, err);
         }

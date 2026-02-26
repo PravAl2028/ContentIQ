@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
-import { callGemini, callGeminiWithVideoURL, parseGeminiJSON, hasGeminiKey, extractFramesFromVideo } from '../services/api.js';
+import { callGemini, callGeminiWithVideoURL, parseGeminiJSON, hasGeminiKey, extractFramesFromVideo, fileToBase64, getLocalVideoDuration } from '../services/api.js';
 import { mockVideoIntelligence } from '../services/mockData.js';
 import { useToast } from '../context/ToastContext.jsx';
 
@@ -33,49 +33,53 @@ export default function VideoIntelligence() {
                 return;
             }
 
-            setLoadingStatus('Extracting frames from video...');
-            let frames, exactDuration;
+            setLoadingStatus('Uploading video to Gemini AI for native analysis...');
+
+            // The correct way in SDK v2 is to upload the video file to the Gemini File API first
+            // But since ContentIQ api wrapper abstracts getClient(), let's use our existing helper directly with the File Object.
+            // Notice: callGeminiWithVideoURL expects a URI, to do this locally we need an upload step or to use base64
+            // Let's use the fileToBase64 utility and pass the entire video.
+
+            // Note: Sending raw MP4 via base64 for Gemini limits might be heavy for larger files, 
+            // but for a proof of concept ContentIQ with <= 50MB it will work. 
+            // We'll update services/api.js to handle `callGeminiWithLocalVideo` right after this.
+
+            setLoadingStatus('Preparing video for AI engine...');
+            const videoBase64 = await fileToBase64(file);
+
+            let exactDurationStr = "N/A";
             try {
-                const extraction = await extractFramesFromVideo(file, 4);
-                frames = extraction.frames;
-                exactDuration = extraction.duration;
-            } catch (frameErr) {
-                setLoadingStatus('Frame extraction failed — loading demo...');
-                showToast('Frame extraction failed: ' + frameErr.message, 'error');
-                await new Promise(r => setTimeout(r, 1500));
-                showResults(mockVideoIntelligence);
-                return;
+                const durationSeconds = await getLocalVideoDuration(file);
+                exactDurationStr = `${Math.floor(durationSeconds / 60)}:${Math.floor(durationSeconds % 60).toString().padStart(2, '0')}`;
+            } catch (e) {
+                console.warn("Could not calculate exact duration natively", e);
             }
 
-            if (!frames || frames.length === 0) {
-                showToast('No frames extracted — loading demo data', 'warning');
-                showResults(mockVideoIntelligence);
-                return;
-            }
-
-            setLoadingStatus(`Sending ${frames.length} frames to Gemini AI...`);
-            const images = frames.map(f => ({ type: 'image/jpeg', base64: f.base64 }));
-
-            const frameTimestamps = frames.map(f => f.time.toFixed(2) + 's').join(', ');
-            const formattedDuration = `${Math.floor(exactDuration / 60)}:${Math.floor(exactDuration % 60).toString().padStart(2, '0')}`;
+            setLoadingStatus('Analyzing native video engagement and extracting timestamps...');
 
             const prompt = `You are ContentIQ Video Intelligence Engine. Act as a full video-intelligence pipeline.
-Analyze these ${frames.length} video frames extracted at exact timestamps: ${frameTimestamps}.
+Analyze this video natively.
 Follow this exact sequence internally:
-1. Treat each provided frame as a distinct scene cut (PySceneDetect equivalent)
-2. Analyse each frame for privacy risks, specifically detecting faces (OpenCV equivalent)
-3. Compute an engagement score (0-100) based on composition and faces present
-4. Generate improvement suggestions
+1. Analyse every single frame of the video from the absolute first second to the absolute last millisecond. Do NOT skip the end of the video.
+2. Compute engagement scores (0-100).
+   - CRITICAL RULE: If a scene cuts to a completely blank screen (solid black, solid white, or any solid color) for MORE THAN 1 SECOND, the engagement score for that duration MUST drop to 0-5. 
+   - Exception: A brief flash of white or black (1 second or less) is often an intentional stylistic transition or highlight. Do NOT penalize short flashes to 0. Score them appropriately as part of the narrative flow.
+3. Group the video into logical scenes. 
+   - CRITICAL RULE: You MUST create a new scene the exact millisecond the video cuts to a long blank screen (> 1s). Do NOT extend the previous scene's duration into the long blank screen.
+   - If the last 10 seconds of a 20-second video are blank, Scene 1 is 0:00-0:10, and Scene 2 is 0:10-0:20 (Engagement: 0).
+4. Identify specific timestamps that correlate with low engagement drops, explicitly calling out timestamps of long blank screens.
+5. Analyse each scene for privacy risks, specifically detecting faces (OpenCV equivalent).
+6. Generate improvement suggestions for each scene. For long blank scenes, suggest "Trim completely". For short stylistic flashes, suggest "Keep" or "Highlight".
 
 Return a JSON object with this exact structure:
 {
-  "duration": "${formattedDuration}",
-  "resolution": "estimated resolution",
+  "duration": "${exactDurationStr}",
+  "resolution": "video resolution",
   "fps": 30,
   "scenes": [
     { 
       "id": 1, 
-      "timestamp": "exact timestamp from the list", 
+      "timestamp": "0:00-0:15", 
       "engagement": 85, 
       "recommendation": "Keep", 
       "reason": "explanation of why", 
@@ -84,20 +88,25 @@ Return a JSON object with this exact structure:
     }
   ],
   "thumbnails": [
-    { "frame": "exact timestamp from the list", "ctrScore": 88, "reason": "why this frame would make a good thumbnail" }
+    { "frame": "the timestamp of a frame causing low engagement", "ctrScore": 30, "reason": "why this frame is causing drop in engagement" }
   ]
 }
 
 Rules:
-- MUST use EXACTLY "${formattedDuration}" as the "duration" value. Do not estimate or change it.
-- You MUST output exactly 1 scene for EVERY frame provided.
-- The "timestamp" for each scene MUST strictly be one of these exact values: ${frameTimestamps}
-- "recommendation" must be exactly one of: "Keep", "Trim", "Cut", or "Highlight"
-- Return ONLY the JSON object, no other text`;
+- MUST include the full duration of the video. The video is exactly ${exactDurationStr} long. Do NOT calculate the duration yourself, use "${exactDurationStr}".
+- The number of scenes is dynamic. 
+- CRITICAL: A LONG blank screen (> 1s) at the end of the video MUST be separated into its own scene with an engagement of 0-5. Short flashes (<= 1s) can be "Highlight".
+- The "timestamp" for each scene MUST be a time range (e.g., "0:00-0:15").
+- The final scene MUST end at exactly ${exactDurationStr}. If the video ends with a long blank screen, the final scene should be the blank screen segment ending at ${exactDurationStr}.
+- For thumbs, identify timestamps/frames causing low engagement (like the start of a long blank screen).
+- "recommendation" must be exactly one of: "Keep", "Trim", "Cut", or "Highlight".
+- Return ONLY the JSON object, no other text.`;
 
             let response;
             try {
-                response = await callGemini(prompt, images);
+                // We'll pass it as an array of inlineData matching the images format for our api wrapper
+                const videoData = [{ type: file.type || 'video/mp4', base64: videoBase64 }];
+                response = await callGemini(prompt, videoData);
             } catch (apiErr) {
                 setLoadingStatus('API error — loading demo data...');
                 showToast('Gemini API error: ' + apiErr.message, 'error');
@@ -112,7 +121,7 @@ Rules:
             if (parsed) {
                 const scenes = (parsed.scenes || []).map((s, idx) => ({
                     id: s.id || idx + 1,
-                    timestamp: s.timestamp || `Scene ${idx + 1} `,
+                    timestamp: s.timestamp || `Scene ${idx + 1}`,
                     engagement: typeof s.engagement === 'number' ? s.engagement : 50,
                     recommendation: ['Keep', 'Trim', 'Cut', 'Highlight'].includes(s.recommendation) ? s.recommendation : 'Keep',
                     reason: s.reason || 'No analysis available',
@@ -123,7 +132,7 @@ Rules:
                 const thumbnails = (parsed.thumbnails || []).map(t => ({
                     frame: t.frame || '0:00',
                     ctrScore: typeof t.ctrScore === 'number' ? t.ctrScore : 50,
-                    reason: t.reason || 'Potential thumbnail candidate'
+                    reason: t.reason || 'Engagement drop factor'
                 }));
 
                 const result = {
@@ -131,8 +140,8 @@ Rules:
                     results: { duration: parsed.duration || 'N/A', resolution: parsed.resolution || 'N/A', fps: parsed.fps || 30, scenes, thumbnails },
                     recommendations: parsed.recommendations || [
                         'Review highlighted scenes for potential clip extraction',
-                        'Use highest CTR thumbnail for primary video thumbnail',
-                        'Consider trimming low-engagement scenes for better retention'
+                        'Consider cutting segments with the lowest engagement score',
+                        'Trim scenes where engagement drops significantly'
                     ]
                 };
                 showResults(result);
@@ -155,40 +164,51 @@ Rules:
         setPhase('loading');
         setLoadingStatus('Sending video URL to Gemini AI...');
 
-        const prompt = `You are ContentIQ Video Intelligence Engine.Act as a full video - intelligence pipeline.
+        const prompt = `You are ContentIQ Video Intelligence Engine. Act as a full video-intelligence pipeline.
 Follow this exact sequence of logic internally:
-            1. Extract and transcribe the audio(Whisper equivalent)
-            2. Detect strict scene cuts based on visual changes(PySceneDetect equivalent)
-            3. Analyse keyframes in each scene for privacy risks, specifically counting faces(OpenCV equivalent)
-            4. Compute an engagement score(0 - 100) per scene based on audio narrative, motion, and face presence
-            5. Generate improvement suggestions
+1. Analyse every single frame of the video from the absolute first second to the absolute last millisecond. Do NOT skip the end of the video.
+2. Extract and transcribe the audio (Whisper equivalent).
+3. Compute engagement scores (0-100).
+   - CRITICAL RULE: If a scene cuts to a completely blank screen (solid black, solid white, or any solid color) for MORE THAN 1 SECOND, the engagement score for that duration MUST drop to 0-5. 
+   - Exception: A brief flash of white or black (1 second or less) is often an intentional stylistic transition or highlight. Do NOT penalize short flashes to 0. Score them appropriately as part of the narrative flow.
+4. Group the video into logical scenes. 
+   - CRITICAL RULE: You MUST create a new scene the exact millisecond the video cuts to a long blank screen (> 1s). Do NOT extend the previous scene's duration into the long blank screen.
+   - If the last 10 seconds of a 20-second video are blank, Scene 1 is 0:00-0:10, and Scene 2 is 0:10-0:20 (Engagement: 0).
+5. Identify specific timestamps/frames that correlate with the lowest engagement drops, explicitly calling out timestamps of long blank screens.
+6. Analyse each scene for privacy risks, specifically counting faces (OpenCV equivalent).
+7. Generate improvement suggestions for each scene. For long blank scenes, suggest "Trim completely". For short stylistic flashes, suggest "Keep" or "Highlight".
 
 Return a JSON object with this exact structure:
-            {
-                "duration": "total duration of the video",
-                    "resolution": "video resolution",
-                        "fps": 30,
-                            "scenes": [
-                                {
-                                    "id": 1,
-                                    "timestamp": "0:00-0:15",
-                                    "engagement": 85,
-                                    "recommendation": "Keep",
-                                    "reason": "explanation of why",
-                                    "composition": "frame composition feedback",
-                                    "privacy": { "has_face": true, "face_count": 1 }
-                                }
-                            ],
-                                "thumbnails": [
-                                    { "frame": "0:05", "ctrScore": 88, "reason": "why this frame would make a good thumbnail" }
-                                ]
-            }
+                {
+                    "duration": "total duration of the video",
+                        "resolution": "video resolution",
+                            "fps": 30,
+                                "scenes": [
+                                    {
+                                        "id": 1,
+                                        "timestamp": "0:00-0:15",
+                                        "engagement": 85,
+                                        "recommendation": "Keep",
+                                        "reason": "explanation of why",
+                                        "composition": "frame composition feedback",
+                                        "privacy": { "has_face": true, "face_count": 1 }
+                                    }
+                                ],
+                                    "thumbnails": [
+                                        { "frame": "timestamp of low engagement frame", "ctrScore": 25, "reason": "why this frame causes an engagement drop" }
+                                    ]
+                }
 
             Rules:
-            - Break the video into deterministic, logical scenes / segments based on real cuts
-                - "engagement" is 0 - 100 score
-                    - "recommendation" must be exactly one of: "Keep", "Trim", "Cut", or "Highlight"
-                        - Return ONLY the JSON object, no other text`;
+            - MUST include the full duration of the video.
+            - The number of scenes is dynamic. 
+            - CRITICAL: A LONG blank screen (> 1s) at the end of the video MUST be separated into its own scene with an engagement of 0-5. Short flashes (<= 1s) can be "Highlight".
+            - The "timestamp" for each scene MUST be a time range (e.g., "0:00-0:15").
+            - The final scene MUST end at exactly the duration of the video. If the video ends with a long blank screen, the final scene should be the blank screen segment.
+            - For thumbnails, return the frames/timestamps responsible for dropping engagement (like the start of a long blank screen).
+            - "engagement" is 0 - 100 score.
+            - "recommendation" must be exactly one of: "Keep", "Trim", "Cut", or "Highlight".
+            - Return ONLY the JSON object, no other text.`;
 
         try {
             const response = await callGeminiWithVideoURL(prompt, videoUrl.trim());
@@ -199,7 +219,7 @@ Return a JSON object with this exact structure:
             if (parsed) {
                 const scenes = (parsed.scenes || []).map((s, idx) => ({
                     id: s.id || idx + 1,
-                    timestamp: s.timestamp || `Scene ${idx + 1} `,
+                    timestamp: s.timestamp || `Scene ${idx + 1}`,
                     engagement: typeof s.engagement === 'number' ? s.engagement : 50,
                     recommendation: ['Keep', 'Trim', 'Cut', 'Highlight'].includes(s.recommendation) ? s.recommendation : 'Keep',
                     reason: s.reason || 'No analysis available',
@@ -209,7 +229,7 @@ Return a JSON object with this exact structure:
                 const thumbnails = (parsed.thumbnails || []).map(t => ({
                     frame: t.frame || '0:00',
                     ctrScore: typeof t.ctrScore === 'number' ? t.ctrScore : 50,
-                    reason: t.reason || 'Potential thumbnail candidate'
+                    reason: t.reason || 'Engagement drop factor'
                 }));
 
                 const result = {
@@ -217,8 +237,8 @@ Return a JSON object with this exact structure:
                     results: { duration: parsed.duration || 'N/A', resolution: parsed.resolution || 'N/A', fps: parsed.fps || 30, scenes, thumbnails },
                     recommendations: parsed.recommendations || [
                         'Review highlighted scenes for potential clip extraction',
-                        'Use highest CTR thumbnail for primary video thumbnail',
-                        'Consider trimming low-engagement scenes for better retention'
+                        'Consider cutting segments with the lowest engagement score',
+                        'Trim scenes where engagement drops significantly'
                     ]
                 };
                 showResults(result);
@@ -251,7 +271,7 @@ Return a JSON object with this exact structure:
             {phase === 'upload' && (
                 <div className="glass-card-static mb-lg">
                     <div
-                        className={`upload - zone${dragOver ? ' drag-over' : ''} `}
+                        className={`upload-zone${dragOver ? ' drag-over' : ''}`}
                         onClick={() => fileInputRef.current?.click()}
                         onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
                         onDragLeave={() => setDragOver(false)}
@@ -328,7 +348,7 @@ function ResultsView({ data, onReset }) {
                     <div className="confidence-bar">
                         <span className="confidence-label">Confidence</span>
                         <div className="progress-bar" style={{ width: 120 }}>
-                            <div className="progress-fill" style={{ width: `${data.confidence * 100}% ` }}></div>
+                            <div className="progress-fill" style={{ width: `${data.confidence * 100}%` }}></div>
                         </div>
                         <span className="confidence-value">{Math.round(data.confidence * 100)}%</span>
                     </div>
@@ -359,7 +379,7 @@ function ResultsView({ data, onReset }) {
                             <div style={{ minWidth: 100 }}>
                                 <div className="scene-timestamp">{s.timestamp}</div>
                                 <div style={{ marginTop: 8 }}>
-                                    <span className={`scene - rec rec - ${s.recommendation.toLowerCase()} `}>{s.recommendation}</span>
+                                    <span className={`scene-rec rec-${s.recommendation.toLowerCase()}`}>{s.recommendation}</span>
                                 </div>
                             </div>
                             <div className="scene-details">
@@ -368,7 +388,7 @@ function ResultsView({ data, onReset }) {
                                     <div className="flex items-center gap-sm">
                                         <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Engagement</span>
                                         <div className="progress-bar" style={{ width: 80 }}>
-                                            <div className="progress-fill" style={{ width: `${s.engagement}% `, background: getEngagementColor(s.engagement) }}></div>
+                                            <div className="progress-fill" style={{ width: `${s.engagement}%`, background: getEngagementColor(s.engagement) }}></div>
                                         </div>
                                         <span style={{ fontSize: '0.82rem', fontWeight: 800, color: getEngagementColor(s.engagement) }}>{s.engagement}%</span>
                                     </div>
@@ -389,7 +409,7 @@ function ResultsView({ data, onReset }) {
                 </div>
             </div>
 
-            <div className="section-title"><span className="section-icon">🖼️</span> Best Thumbnail Frames</div>
+            <div className="section-title"><span className="section-icon">📉</span> Low Engagement Frames Identifiers</div>
             <div className="glass-card-static mb-lg">
                 <div className="grid-3">
                     {thumbs.map((t, i) => (
