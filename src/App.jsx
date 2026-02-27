@@ -1,6 +1,11 @@
 import { NavLink, Routes, Route, Navigate } from 'react-router-dom';
 import { hasGeminiKey, hasElevenLabsKey } from './services/api.js';
 import { useState, useEffect } from 'react';
+import { motion } from 'framer-motion';
+import {
+    LayoutDashboard, Sparkles, PenTool, Share2, Shield,
+    Mic, Globe, Image as ImageIcon, Music, Settings as SettingsIcon
+} from 'lucide-react';
 
 import Dashboard from './pages/Dashboard.jsx';
 import VideoIntelligence from './pages/VideoIntelligence.jsx';
@@ -14,17 +19,98 @@ import BGM from './pages/BGM.jsx';
 import Settings from './pages/Settings.jsx';
 
 const NAV_ITEMS = [
-    { id: 'dashboard', path: '/', label: 'Dashboard', icon: '📊', section: 'Overview' },
-    { id: 'video-intelligence', path: '/video-intelligence', label: 'Video Intelligence', icon: '🎬', section: 'Analysis', badge: 'AI' },
-    { id: 'trend-script', path: '/trend-script', label: 'Script Generator', icon: '✍️', section: 'Analysis' },
-    { id: 'distribution', path: '/distribution', label: 'Distribution', icon: '📱', section: 'Distribution' },
-    { id: 'privacy', path: '/privacy', label: 'Privacy Filter', icon: '🔒', section: 'Distribution' },
-    { id: 'voice-tracker', path: '/voice-tracker', label: 'Voice Tracker', icon: '🎤', section: 'Creator Tools' },
-    { id: 'dubbing', path: '/dubbing', label: 'Multilingual Dubbing', icon: '🌐', section: 'Creator Tools', badge: '11Labs' },
-    { id: 'thumbnail', path: '/thumbnail', label: 'Thumbnail Analyzer', icon: '🖼️', section: 'Creator Tools' },
-    { id: 'bgm', path: '/bgm', label: 'BGM Suggester', icon: '🎵', section: 'Creator Tools', badge: '11Labs' },
-    { id: 'settings', path: '/settings', label: 'Settings', icon: '⚙️', section: 'System' },
+    { id: 'dashboard', path: '/', label: 'Dashboard', icon: <LayoutDashboard size={18} />, section: 'Overview' },
+    { id: 'video-intelligence', path: '/video-intelligence', label: 'Video Intelligence', icon: <Sparkles size={18} />, section: 'Analysis', badge: 'AI' },
+    { id: 'trend-script', path: '/trend-script', label: 'Script Generator', icon: <PenTool size={18} />, section: 'Analysis' },
+    { id: 'distribution', path: '/distribution', label: 'Distribution', icon: <Share2 size={18} />, section: 'Distribution' },
+    { id: 'privacy', path: '/privacy', label: 'Privacy Filter', icon: <Shield size={18} />, section: 'Distribution' },
+    { id: 'voice-tracker', path: '/voice-tracker', label: 'Voice Tracker', icon: <Mic size={18} />, section: 'Creator Tools' },
+    { id: 'dubbing', path: '/dubbing', label: 'Multilingual Dubbing', icon: <Globe size={18} />, section: 'Creator Tools', badge: '11Labs' },
+    { id: 'thumbnail', path: '/thumbnail', label: 'Thumbnail Analyzer', icon: <ImageIcon size={18} />, section: 'Creator Tools' },
+    { id: 'bgm', path: '/bgm', label: 'BGM Suggester', icon: <Music size={18} />, section: 'Creator Tools', badge: '11Labs' },
+    { id: 'settings', path: '/settings', label: 'Settings', icon: <SettingsIcon size={18} />, section: 'System' },
 ];
+
+function CustomCursor() {
+    const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
+    const [isHovering, setIsHovering] = useState(false);
+
+    const [isGlobalDragging, setIsGlobalDragging] = useState(false);
+
+    useEffect(() => {
+        // Observe body class changes to instantly hide/show cursor during drag
+        const observer = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+                if (mutation.attributeName === 'class') {
+                    const isDragging = document.body.classList.contains('is-dragging-global');
+                    setIsGlobalDragging(isDragging);
+                }
+            });
+        });
+
+        observer.observe(document.body, { attributes: true });
+
+        const updateMousePosition = (e) => {
+            setMousePosition({ x: e.clientX, y: e.clientY });
+
+            const target = e.target;
+            const isClickable =
+                window.getComputedStyle(target).cursor === 'pointer' ||
+                target.tagName.toLowerCase() === 'button' ||
+                target.tagName.toLowerCase() === 'a' ||
+                target.closest('button') ||
+                target.closest('a') ||
+                target.closest('.glass-card') ||
+                target.closest('.nav-item') ||
+                target.closest('.upload-zone');
+
+            setIsHovering(isClickable ? 'hover' : 'default');
+        };
+
+        window.addEventListener('mousemove', updateMousePosition);
+        return () => {
+            window.removeEventListener('mousemove', updateMousePosition);
+            observer.disconnect();
+        };
+    }, []);
+
+    const variants = {
+        default: {
+            x: mousePosition.x - 6,
+            y: mousePosition.y - 6,
+            scale: 1,
+            backgroundColor: 'var(--lavender)',
+            opacity: 1
+        },
+        hover: {
+            x: mousePosition.x - 16,
+            y: mousePosition.y - 16,
+            scale: 1.5,
+            backgroundColor: 'var(--purple-glow)',
+            opacity: 0.6,
+            mixBlendMode: 'screen'
+        },
+        hidden: {
+            opacity: 0,
+            scale: 0,
+            transition: { duration: 0.1 } // Faster fade out
+        }
+    };
+
+    // If globally dragging a timeline element, unmount the cursor visually
+    if (isGlobalDragging) {
+        return <div style={{ display: 'none' }} />;
+    }
+
+    return (
+        <motion.div
+            className="custom-cursor"
+            variants={variants}
+            animate={isHovering}
+            transition={{ type: 'tween', ease: 'backOut', duration: 0.15 }}
+        />
+    );
+}
 
 function ApiStatusIndicator() {
     const [status, setStatus] = useState({ gemini: false, eleven: false });
@@ -88,6 +174,7 @@ export default function App() {
 
     return (
         <div id="app">
+            <CustomCursor />
             <aside className="sidebar">
                 <div className="sidebar-brand">
                     <div className="brand-icon">

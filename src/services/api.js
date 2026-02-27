@@ -8,7 +8,7 @@ import { GoogleGenAI } from '@google/genai';
 const GEMINI_API_KEY = () => localStorage.getItem('GEMINI_API_KEY') || '';
 const ELEVENLABS_API_KEY = () => localStorage.getItem('ELEVENLABS_API_KEY') || '';
 
-const GEMINI_MODEL = 'gemini-2.5-flash-lite';
+const GEMINI_MODEL = 'gemini-2.5-flash';
 const ELEVENLABS_BASE = 'https://api.elevenlabs.io/v1';
 
 // ------ Response Wrapper ------
@@ -46,20 +46,36 @@ export async function callGemini(prompt, images = []) {
 
   console.log('[ContentIQ] Calling Gemini with', images.length, 'images...');
 
-  const response = await client.models.generateContent({
-    model: GEMINI_MODEL,
-    contents: contents,
-    config: {
-      temperature: 0.7,
-      topP: 0.95,
-      maxOutputTokens: 8192,
-      responseMimeType: 'application/json'
-    }
-  });
+  let retries = 3;
+  let delay = 1000;
 
-  const text = response.text || '';
-  console.log('[ContentIQ] Gemini response received:', text.substring(0, 300));
-  return text;
+  while (retries > 0) {
+    try {
+      const response = await client.models.generateContent({
+        model: GEMINI_MODEL,
+        contents: contents,
+        config: {
+          temperature: 0.7,
+          topP: 0.95,
+          maxOutputTokens: 8192,
+          responseMimeType: 'application/json'
+        }
+      });
+
+      const text = response.text || '';
+      console.log('[ContentIQ] Gemini response received:', text.substring(0, 300));
+      return text;
+    } catch (err) {
+      if (err.message && err.message.includes('503') && retries > 1) {
+        console.warn(`[ContentIQ] Gemini 503 error. Retrying in ${delay}ms...`);
+        await new Promise(r => setTimeout(r, delay));
+        retries--;
+        delay *= 2; // Exponential backoff
+      } else {
+        throw err;
+      }
+    }
+  }
 }
 
 export async function callGeminiWithVideoURL(prompt, videoUrl) {
@@ -68,23 +84,39 @@ export async function callGeminiWithVideoURL(prompt, videoUrl) {
 
   console.log('[ContentIQ] Calling Gemini with video URL:', videoUrl);
 
-  const response = await client.models.generateContent({
-    model: GEMINI_MODEL,
-    contents: [
-      { fileData: { fileUri: videoUrl, mimeType: 'video/mp4' } },
-      prompt
-    ],
-    config: {
-      temperature: 0.7,
-      topP: 0.95,
-      maxOutputTokens: 8192,
-      responseMimeType: 'application/json'
-    }
-  });
+  let retries = 3;
+  let delay = 1000;
 
-  const text = response.text || '';
-  console.log('[ContentIQ] Gemini video response received:', text.substring(0, 300));
-  return text;
+  while (retries > 0) {
+    try {
+      const response = await client.models.generateContent({
+        model: GEMINI_MODEL,
+        contents: [
+          { fileData: { fileUri: videoUrl, mimeType: 'video/mp4' } },
+          prompt
+        ],
+        config: {
+          temperature: 0.7,
+          topP: 0.95,
+          maxOutputTokens: 8192,
+          responseMimeType: 'application/json'
+        }
+      });
+
+      const text = response.text || '';
+      console.log('[ContentIQ] Gemini video response received:', text.substring(0, 300));
+      return text;
+    } catch (err) {
+      if (err.message && err.message.includes('503') && retries > 1) {
+        console.warn(`[ContentIQ] Gemini 503 error on video URL. Retrying in ${delay}ms...`);
+        await new Promise(r => setTimeout(r, delay));
+        retries--;
+        delay *= 2; // Exponential backoff
+      } else {
+        throw err;
+      }
+    }
+  }
 }
 
 export function parseGeminiJSON(text) {
