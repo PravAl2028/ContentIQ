@@ -33,13 +33,20 @@ export const mockVideoIntelligence = {
     ]
 };
 
-export const mockTrendScript = {
+export const mockTrendScriptBasic = {
     module: "trend_to_script",
     status: "success",
     confidence: 0.91,
     results: {
         topic: "AI Tools for Productivity",
         tone: "casual",
+        stats: {
+            estimatedDuration: "12 minutes",
+            wordCount: "1,650 words",
+            retention: "82%",
+            hookStrength: "Strong",
+            pacing: "Balanced"
+        },
         script: {
             hook: "What if I told you there are 5 AI tools that replaced my entire virtual assistant — and they're all free?",
             valuePoints: [
@@ -55,8 +62,60 @@ export const mockTrendScript = {
     recommendations: [
         "Open with a bold claim for maximum hook retention",
         "Use on-screen text overlays for each tool name",
-        "Keep each tool segment under 45s for TikTok repurposing",
+        "Keep each tool segment under 45s for short-form repurposing",
         "Add a mid-roll engagement prompt after Tool #3"
+    ]
+};
+
+export const mockTrendScriptStoryboard = {
+    module: "trend_to_script",
+    status: "success",
+    confidence: 0.94,
+    results: {
+        topic: "AI Tools for Productivity",
+        tone: "casual",
+        stats: {
+            estimatedDuration: "12 minutes",
+            wordCount: "1,650 words",
+            retention: "85%",
+            hookStrength: "Very Strong",
+            pacing: "Fast-Paced"
+        },
+        scenes: [
+            {
+                title: "Scene 1 – Hook (0:00–0:15)",
+                purpose: "Pattern interrupt",
+                dialogue: "What if I told you there are 5 AI tools that replaced my entire virtual assistant — and they're all free?",
+                visual: "You centered in frame, slight low angle, holding up phone showing an empty calendar. Quick zoom on 'free'.",
+                editing: "Zoom in on 'free' / fast cuts / bold yellow subtitles"
+            },
+            {
+                title: "Scene 2 – Problem & Agitation (0:15–0:40)",
+                purpose: "Build tension",
+                dialogue: "We all waste 15 hours a week doing boring admin tasks. Writing emails, organizing notes, making slides... it kills your actual work.",
+                visual: "B-roll of someone looking stressed at a computer late at night. Desk is messy.",
+                editing: "Slower pacing, slight desaturation to emphasize 'pain' state."
+            },
+            {
+                title: "Scene 3 – Solution: Tool 1 (0:40–1:30)",
+                purpose: "Value delivery",
+                dialogue: "Meet tool number one: Notion AI. It completely auto-organizes my notes and formats all my tasks.",
+                visual: "Screen recording of Notion AI in action, auto-categorizing notes. Facecam in bottom corner.",
+                editing: "Screen zoom to show the AI typing out notes automatically."
+            },
+            {
+                title: "Scene 4 – Call to Action (11:30–12:00)",
+                purpose: "Engagement trigger",
+                dialogue: "Which of these 5 tools are you using first? Let me know in the comments. Subscribe for more AI workflows.",
+                visual: "Eye-level medium shot. Pointing down towards comments, then giving a thumbs up.",
+                editing: "Pop-up graphics for 'Subscribe' and 'Comment'. Fade out BGM."
+            }
+        ]
+    },
+    recommendations: [
+        "Film B-roll segments in batches to maintain lighting consistency",
+        "Keep the focus entirely on you for the hook before cutting",
+        "Maintain pacing by cutting out dead air during the screen recording"
     ]
 };
 
@@ -70,11 +129,6 @@ export const mockDistributionPlan = {
             description: "Discover the 5 AI tools I use daily to automate my entire workflow — from note-taking to video editing. All completely free.\n\n⏰ Timestamps:\n0:00 Intro\n0:18 Tool #1: Notion AI\n1:02 Tool #2: Gamma\n1:45 Tool #3: Perplexity\n2:30 Tool #4: Descript\n3:15 Tool #5: Zapier Central\n3:50 Final Thoughts\n\n🔗 Links mentioned in the video...",
             tags: ["AI tools", "productivity", "free AI", "virtual assistant replacement", "notion ai", "AI workflow", "tech tools 2025", "AI automation"]
         },
-        tiktok: {
-            clipRange: "0:00–0:58",
-            caption: "5 AI tools that replaced my virtual assistant for FREE 🤯 #5 will blow your mind",
-            hashtags: ["#AItools", "#productivityhack", "#freeAI", "#techtools", "#AIautomation", "#workhacks", "#notionai"]
-        },
         instagram: {
             caption: "I fired my virtual assistant and hired these 5 AI tools instead 🤖✨\n\nAll free. All game-changing.\n\nSave this for later 📌",
             hashtags: ["#AItools", "#productivitytips", "#techlife", "#worksmarter", "#AI2025", "#freetools", "#automation", "#contentcreator"]
@@ -86,8 +140,8 @@ export const mockDistributionPlan = {
         }
     },
     recommendations: [
-        "Post YouTube first, then repurpose clips to TikTok within 2 hours",
-        "Use Instagram Reels from the same TikTok clip for cross-platform reach",
+        "Post YouTube first, then repurpose clips to Instagram within 2 hours",
+        "Use Instagram Reels for cross-platform reach",
         "Schedule tweets threaded with each tool to drive traffic to YouTube",
         "Tuesday 10AM EST has 23% higher CTR for this niche"
     ]

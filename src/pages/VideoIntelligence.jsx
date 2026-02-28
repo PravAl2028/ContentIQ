@@ -316,9 +316,8 @@ export default function VideoIntelligence() {
         setPhase('loading');
         try {
             if (!hasGeminiKey()) {
-                setLoadingStatus('No API key — loading demo data...');
-                await new Promise(r => setTimeout(r, 2000));
-                showResults(mockVideoIntelligence);
+                setPhase('upload');
+                showToast('Gemini API key required for analysis — add it in Settings', 'warning');
                 return;
             }
 
@@ -389,10 +388,8 @@ Rules:
                 const videoData = [{ type: file.type || 'video/mp4', base64: videoBase64 }];
                 response = await callGemini(prompt, videoData);
             } catch (apiErr) {
-                setLoadingStatus('API error — loading demo data...');
+                setPhase('upload');
                 showToast('Gemini API error: ' + apiErr.message, 'error');
-                await new Promise(r => setTimeout(r, 1500));
-                showResults(mockVideoIntelligence);
                 return;
             }
 
@@ -435,13 +432,12 @@ Rules:
                 showResults(result);
                 showToast('Video analysis complete!', 'success');
             } else {
-                showResults(mockVideoIntelligence);
-                showToast('Could not parse AI response — showing demo data', 'warning');
+                setPhase('upload');
+                showToast('Could not parse AI response. Please try again.', 'error');
             }
         } catch (err) {
-            setLoadingStatus('Error — loading demo data...');
-            showResults(mockVideoIntelligence);
-            showToast('Error: ' + err.message + ' — showing demo data', 'error');
+            setPhase('upload');
+            showToast('Error: ' + err.message, 'error');
         }
     }, [showToast, showResults]);
 
@@ -545,13 +541,12 @@ Rules:
                 showResults(result);
                 showToast('Video analysis complete!', 'success');
             } else {
-                showResults(mockVideoIntelligence);
-                showToast('Could not parse AI response — showing demo data', 'warning');
+                setPhase('upload');
+                showToast('Could not parse AI response. Please try again.', 'error');
             }
         } catch (err) {
-            setLoadingStatus('Error — loading demo data...');
-            showResults(mockVideoIntelligence);
-            showToast('Error: ' + err.message + ' — showing demo data', 'error');
+            setPhase('upload');
+            showToast('Error: ' + err.message, 'error');
         }
     }, [videoUrl, showToast, showResults]);
 

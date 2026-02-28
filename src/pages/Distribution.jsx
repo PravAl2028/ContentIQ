@@ -34,7 +34,6 @@ export default function Distribution() {
 Return JSON:
 {
   "youtube": { "title": "SEO optimized title", "description": "full description with timestamps", "tags": ["tag1","tag2"] },
-  "tiktok": { "clipRange": "best 30-60s range", "caption": "caption", "hashtags": ["#tag1"] },
   "instagram": { "caption": "caption", "hashtags": ["#tag1"] },
   "viralWindow": { "bestDay": "day", "bestTime": "time EST", "reason": "why" }
 }
@@ -63,7 +62,7 @@ Return ONLY valid JSON.`;
         <div className="page-enter">
             <div className="page-header">
                 <h1>📱 Multi-Platform Distribution Planner</h1>
-                <p>Generate optimized content packages for YouTube, TikTok, and Instagram</p>
+                <p>Generate optimized content packages for YouTube and Instagram</p>
             </div>
 
             <div className="glass-card-static mb-lg">
@@ -133,27 +132,7 @@ Return ONLY valid JSON.`;
                         </div>
                     </div>
 
-                    <div className="grid-2 mb-lg">
-                        {/* TikTok */}
-                        <div className="glass-card-static platform-card">
-                            <div className="platform-card-header" style={{ color: '#00F2EA' }}>
-                                <span style={{ fontSize: '1.2rem' }}>🎵</span> TikTok
-                            </div>
-                            <div className="platform-card-body">
-                                <div className="form-group mb-md">
-                                    <label className="form-label">Best Clip</label>
-                                    <span className="tag tag-info">{r.tiktok.clipRange}</span>
-                                </div>
-                                <div className="form-group mb-md">
-                                    <label className="form-label">Caption</label>
-                                    <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>{r.tiktok.caption}</p>
-                                </div>
-                                <div className="flex gap-sm" style={{ flexWrap: 'wrap' }}>
-                                    {r.tiktok.hashtags.map((h, i) => <span className="tag tag-info" key={i}>{h}</span>)}
-                                </div>
-                            </div>
-                        </div>
-
+                    <div className="mb-lg">
                         {/* Instagram */}
                         <div className="glass-card-static platform-card">
                             <div className="platform-card-header" style={{ color: '#E1306C' }}>
