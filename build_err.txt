@@ -1,0 +1,27 @@
+[36mvite v7.3.1 [32mbuilding client environment for production...[36m[39m
+transforming...
+[32m✓[39m 29 modules transformed.
+[31m✗[39m Build failed in 623ms
+[31merror during build:
+[31m[vite:esbuild] Transform failed with 1 error:
+C:/ContentIQ/src/pages/VideoIntelligence.jsx:511:112: ERROR: Syntax error "`"[31m
+file: [36mC:/ContentIQ/src/pages/VideoIntelligence.jsx:511:112[31m
+[33m
+[33mSyntax error "`"[33m
+509 |                                  {/* Scene Markers */}
+510 |                                  {scenes.map((s, i) => (
+511 |  ...le={s.recommendation} style={{ position: 'absolute', left: \`\${Math.min(10 + i * 20, 95)}%\`, top: -2, width: 10,...
+    |                                                                 ^
+512 |                                  ))}
+513 |                          </div>
+[31m
+    at failureErrorWithLog (C:\ContentIQ\node_modules\esbuild\lib\main.js:1467:15)
+    at C:\ContentIQ\node_modules\esbuild\lib\main.js:736:50
+    at responseCallbacks.<computed> (C:\ContentIQ\node_modules\esbuild\lib\main.js:603:9)
+    at handleIncomingPacket (C:\ContentIQ\node_modules\esbuild\lib\main.js:658:12)
+    at Socket.readFromStdout (C:\ContentIQ\node_modules\esbuild\lib\main.js:581:7)
+    at Socket.emit (node:events:508:28)
+    at addChunk (node:internal/streams/readable:559:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:510:3)
+    at Readable.push (node:internal/streams/readable:390:5)
+    at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)[39m
